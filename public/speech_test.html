@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Recognition Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: fit-content;
+        }
+        button:hover {
+            background-color: #3367d6;
+        }
+        .recording {
+            background-color: #ea4335;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .status {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .error {
+            color: #ea4335;
+        }
+        .success {
+            color: #34a853;
+        }
+    </style>
+</head>
+<body>
+    <h1>Speech Recognition Testing Tool</h1>
+    <div class="container">
+        <div>
+            <h2>1. Check API Connection</h2>
+            <button id="checkConnection">Check Connection</button>
+            <div class="status" id="connectionStatus"></div>
+            <pre id="connectionResult">Click button to test connection to recognition API</pre>
+        </div>
+
+        <div>
+            <h2>2. Test Audio Recording</h2>
+            <button id="recordButton">Start Recording</button>
+            <div class="status" id="recordingStatus"></div>
+            <pre id="recordingResult">No recording yet</pre>
+        </div>
+
+        <div>
+            <h2>3. Test Speech Recognition</h2>
+            <button id="recognizeButton">Record and Recognize</button>
+            <div class="status" id="recognitionStatus"></div>
+            <pre id="recognitionResult">No recognition results yet</pre>
+        </div>
+        
+        <div>
+            <h2>4. Test With Curl (Known Working Method)</h2>
+            <button id="curlButton">Record and Test via Curl</button>
+            <div class="status" id="curlStatus"></div>
+            <pre id="curlResult">No curl test results yet</pre>
+        </div>
+    </div>
+
+    <script>
+        // Connection test
+        document.getElementById('checkConnection').addEventListener('click', async () => {
+            const connectionStatus = document.getElementById('connectionStatus');
+            const connectionResult = document.getElementById('connectionResult');
+            
+            connectionStatus.textContent = 'Testing connection...';
+            connectionStatus.className = 'status';
+            
+            try {
+                const response = await fetch('/recognize/test');
+                const data = await response.json();
+                
+                connectionResult.textContent = JSON.stringify(data, null, 2);
+                
+                if (data.status === 'success') {
+                    connectionStatus.textContent = 'Connection successful!';
+                    connectionStatus.className = 'status success';
+                } else {
+                    connectionStatus.textContent = 'Connection failed.';
+                    connectionStatus.className = 'status error';
+                }
+            } catch (error) {
+                connectionStatus.textContent = 'Connection error.';
+                connectionStatus.className = 'status error';
+                connectionResult.textContent = `Error: ${error.message}`;
+            }
+        });
+
+        // Recording test
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        
+        // Check for supported MIME types
+        function getSupportedMimeType() {
+            if (!MediaRecorder.isTypeSupported) {
+                console.warn('MediaRecorder.isTypeSupported not available');
+                return '';
+            }
+            
+            const types = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/mp4',
+                'audio/mpeg',
+                'audio/wav'
+            ];
+            
+            for (const type of types) {
+                if (MediaRecorder.isTypeSupported(type)) {
+                    console.log(`Browser supports recording with MIME type: ${type}`);
+                    return type;
+                }
+            }
+            
+            console.warn('None of the preferred MIME types are supported, using default');
+            return '';  // Let the browser use default
+        }
+        
+        async function setupRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Get a supported MIME type
+                const supportedType = getSupportedMimeType();
+                const options = supportedType ? { mimeType: supportedType } : undefined;
+                
+                console.log(`Creating MediaRecorder with options:`, options);
+                const recorder = new MediaRecorder(stream, options);
+                
+                console.log(`MediaRecorder created successfully with mime type: ${recorder.mimeType || 'unknown'}`);
+                return recorder;
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                document.getElementById('recordingStatus').textContent = 'Microphone access error.';
+                document.getElementById('recordingStatus').className = 'status error';
+                document.getElementById('recordingResult').textContent = `Error: ${error.message}`;
+                return null;
+            }
+        }
+        
+        document.getElementById('recordButton').addEventListener('click', async () => {
+            const recordButton = document.getElementById('recordButton');
+            const recordingStatus = document.getElementById('recordingStatus');
+            const recordingResult = document.getElementById('recordingResult');
+            
+            if (isRecording) {
+                // Stop recording
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
+                recordButton.textContent = 'Start Recording';
+                recordButton.classList.remove('recording');
+                recordingStatus.textContent = 'Processing recording...';
+            } else {
+                // Start recording
+                if (!mediaRecorder) {
+                    mediaRecorder = await setupRecording();
+                    if (!mediaRecorder) return;
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0) {
+                            audioChunks.push(event.data);
+                        }
+                    };
+                    
+                    mediaRecorder.onstop = async () => {
+                        isRecording = false;
+                        recordingStatus.textContent = 'Recording complete!';
+                        recordingStatus.className = 'status success';
+                        
+                        // Get the actual MIME type used by the recorder
+                        const mimeType = mediaRecorder.mimeType || getSupportedMimeType() || 'audio/webm';
+                        recordingStatus.textContent += ` (Format: ${mimeType})`;
+                        
+                        // Create the blob with the correct MIME type
+                        const audioBlob = new Blob(audioChunks, { type: mimeType });
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        
+                        console.log(`Recording completed. Size: ${audioBlob.size} bytes, Type: ${mimeType}`);
+                        
+                        // Create audio element to play back the recording
+                        const audioElement = document.createElement('audio');
+                        audioElement.src = audioUrl;
+                        audioElement.controls = true;
+                        
+                        recordingResult.textContent = '';
+                        recordingResult.appendChild(audioElement);
+                        
+                        const fileSize = audioBlob.size;
+                        const fileSizeInfo = document.createElement('p');
+                        fileSizeInfo.textContent = `Recording size: ${fileSize} bytes`;
+                        recordingResult.appendChild(fileSizeInfo);
+                        
+                        // Keep audioChunks for recognition
+                    };
+                }
+                
+                audioChunks = [];
+                mediaRecorder.start();
+                isRecording = true;
+                recordButton.textContent = 'Stop Recording';
+                recordButton.classList.add('recording');
+                recordingStatus.textContent = 'Recording...';
+                recordingStatus.className = 'status';
+            }
+        });
+
+        // Speech recognition test
+        document.getElementById('recognizeButton').addEventListener('click', async () => {
+            const recognizeButton = document.getElementById('recognizeButton');
+            const recognitionStatus = document.getElementById('recognitionStatus');
+            const recognitionResult = document.getElementById('recognitionResult');
+            
+            if (isRecording) {
+                // Stop recording and recognize
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                    
+                    // Add additional handler for speech recognition
+                    const oldOndataavailable = mediaRecorder.ondataavailable;
+                    mediaRecorder.ondataavailable = async (event) => {
+                        if (oldOndataavailable) oldOndataavailable(event);
+                        
+                        if (event.data.size > 0) {
+                            recognitionStatus.textContent = 'Processing speech...';
+                            recognitionStatus.className = 'status';
+                            
+                            // Browser typically records in webm format, but we need to specify the mime type
+                            const mimeType = mediaRecorder.mimeType || 'audio/webm';
+                            recognitionStatus.textContent += ` (Format: ${mimeType})`;
+                            
+                            const audioBlob = new Blob(audioChunks, { type: mimeType });
+                            try {
+                                const formData = new FormData();
+                                // Name the file with the correct extension based on the mime type
+                                let filename = 'recording';
+                                if (mimeType.includes('webm')) {
+                                    filename += '.webm';
+                                } else if (mimeType.includes('mp4') || mimeType.includes('quicktime')) {
+                                    filename += '.mov';
+                                } else {
+                                    filename += '.wav'; // Default fallback
+                                }
+                                
+                                formData.append('file', audioBlob, filename);
+                                
+                                recognitionResult.textContent = `Sending audio to recognition API (${mimeType})...`;
+                                
+                                const response = await fetch('/recognize', {
+                                    method: 'POST',
+                                    body: formData
+                                });
+                                
+                                const responseText = await response.text();
+                                try {
+                                    const data = JSON.parse(responseText);
+                                    recognitionStatus.textContent = 'Recognition complete!';
+                                    recognitionStatus.className = 'status success';
+                                    recognitionResult.textContent = JSON.stringify(data, null, 2);
+                                } catch (e) {
+                                    // If not valid JSON, show raw response
+                                    recognitionStatus.textContent = 'Recognition returned non-JSON response.';
+                                    recognitionStatus.className = 'status error';
+                                    recognitionResult.textContent = responseText;
+                                }
+                            } catch (error) {
+                                recognitionStatus.textContent = 'Recognition failed.';
+                                recognitionStatus.className = 'status error';
+                                recognitionResult.textContent = `Error: ${error.message}`;
+                            }
+                        }
+                    };
+                }
+                
+                recognizeButton.textContent = 'Record and Recognize';
+                recognizeButton.classList.remove('recording');
+            } else {
+                // Start recording
+                if (!mediaRecorder) {
+                    mediaRecorder = await setupRecording();
+                    if (!mediaRecorder) return;
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0) {
+                            audioChunks.push(event.data);
+                        }
+                    };
+                    
+                    mediaRecorder.onstop = () => {
+                        isRecording = false;
+                        recognizeButton.textContent = 'Record and Recognize';
+                        recognizeButton.classList.remove('recording');
+                    };
+                }
+                
+                audioChunks = [];
+                mediaRecorder.start();
+                isRecording = true;
+                recognizeButton.textContent = 'Stop and Recognize';
+                recognizeButton.classList.add('recording');
+                recognitionStatus.textContent = 'Recording...';
+                recognitionStatus.className = 'status';
+                recognitionResult.textContent = 'Recording in progress...';
+            }
+        });
+
+        // Curl test
+        document.getElementById('curlButton').addEventListener('click', async () => {
+            const curlButton = document.getElementById('curlButton');
+            const curlStatus = document.getElementById('curlStatus');
+            const curlResult = document.getElementById('curlResult');
+            
+            if (isRecording) {
+                // Stop recording and test via curl
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                    
+                    // Add additional handler for curl testing
+                    const oldOndataavailable = mediaRecorder.ondataavailable;
+                    mediaRecorder.ondataavailable = async (event) => {
+                        if (oldOndataavailable) oldOndataavailable(event);
+                        
+                        if (event.data.size > 0) {
+                            curlStatus.textContent = 'Processing with curl...';
+                            curlStatus.className = 'status';
+                            
+                            // Get mime type
+                            const mimeType = mediaRecorder.mimeType || 'audio/webm';
+                            curlStatus.textContent += ` (Format: ${mimeType})`;
+                            
+                            const audioBlob = new Blob(audioChunks, { type: mimeType });
+                            try {
+                                const formData = new FormData();
+                                
+                                // Name the file with a correct extension
+                                let filename = 'recording';
+                                if (mimeType.includes('webm')) {
+                                    filename += '.webm';
+                                } else if (mimeType.includes('mp4') || mimeType.includes('quicktime')) {
+                                    filename += '.mov';
+                                } else {
+                                    filename += '.wav';
+                                }
+                                
+                                formData.append('file', audioBlob, filename);
+                                
+                                curlResult.textContent = `Sending audio to curl test endpoint (${mimeType})...`;
+                                
+                                const response = await fetch('/recognize/curl-test', {
+                                    method: 'POST',
+                                    body: formData
+                                });
+                                
+                                const responseText = await response.text();
+                                try {
+                                    const data = JSON.parse(responseText);
+                                    curlStatus.textContent = 'Curl test complete!';
+                                    curlStatus.className = 'status success';
+                                    curlResult.textContent = JSON.stringify(data, null, 2);
+                                } catch (e) {
+                                    // If not valid JSON, show raw response
+                                    curlStatus.textContent = 'Curl test returned non-JSON response.';
+                                    curlStatus.className = 'status error';
+                                    curlResult.textContent = responseText;
+                                }
+                            } catch (error) {
+                                curlStatus.textContent = 'Curl test failed.';
+                                curlStatus.className = 'status error';
+                                curlResult.textContent = `Error: ${error.message}`;
+                            }
+                        }
+                    };
+                }
+                
+                curlButton.textContent = 'Record and Test via Curl';
+                curlButton.classList.remove('recording');
+            } else {
+                // Start recording
+                if (!mediaRecorder) {
+                    mediaRecorder = await setupRecording();
+                    if (!mediaRecorder) return;
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0) {
+                            audioChunks.push(event.data);
+                        }
+                    };
+                    
+                    mediaRecorder.onstop = () => {
+                        isRecording = false;
+                        curlButton.textContent = 'Record and Test via Curl';
+                        curlButton.classList.remove('recording');
+                    };
+                }
+                
+                audioChunks = [];
+                mediaRecorder.start();
+                isRecording = true;
+                curlButton.textContent = 'Stop and Test via Curl';
+                curlButton.classList.add('recording');
+                curlStatus.textContent = 'Recording...';
+                curlStatus.className = 'status';
+                curlResult.textContent = 'Recording in progress...';
+            }
+        });
+    </script>
+</body>
+</html> 
