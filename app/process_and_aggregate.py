@@ -3,6 +3,7 @@ import os
 import json
 import argparse
 import requests
+from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional
 
 # Base configuration 
@@ -58,7 +59,7 @@ SCHEMA = {
             {
                 "name": "count",
                 "type": "INTEGER",
-                "description": "Number of requests/API calls to this model in this time period",
+                "description": "Number of requests/API calls to this model in one hour(3600 seconds)",
                 "examples": ["19228", "4304"],
                 "constraints": "Non-null, >= 0",
                 "aggregation": "Often summed to show total request count"
@@ -72,7 +73,7 @@ SCHEMA = {
                 "usage": "Often summed to show total cost"
             }
         ],
-        "table_description": "Stores usage statistics and cost information for various AI language models over time. Each record represents a model's usage metrics in 3600 seconds.",
+        "table_description": "Stores usage statistics and cost information for various AI language models over time. Each record represents a model's usage metrics in 3600 seconds. Queries for rpm (requests per minute) and tpm (tokensper minute) should be based the data on this table, divided by 60.",
         "time_series_nature": "Data is time-series with created_at timestamps. Queries often involve time ranges and aggregations.",
         "common_queries": [
             "Sum of tokens used by a specific model in a time range",
@@ -281,172 +282,172 @@ SCHEMA = {
             "Tokens with highest usage"
         ]
     },
-    "log": {
-        "endpoint": "/log/",
-        "params": {
-            "p": 1,
-            "page_size": 1000,
-            "type": 0,
-            "username": "",
-            "token_name": "",
-            "model_name": "",
-            "channel": "",
-            "group": ""
-            # start_timestamp and end_timestamp added at runtime
-        },
-        "response_key": "data.items",  # Note nested path to access items array
-        "columns": [
-            {
-                "name": "id",
-                "type": "INTEGER",
-                "description": "Unique identifier for the log entry",
-                "examples": ["144789993", "144789992"],
-                "constraints": "Non-null, primary key"
-            },
-            {
-                "name": "user_id",
-                "type": "INTEGER",
-                "description": "ID of the user who made the API call",
-                "examples": ["2", "101"],
-                "constraints": "Non-null, >= 0"
-            },
-            {
-                "name": "created_at",
-                "type": "INTEGER",
-                "description": "Unix timestamp when the log entry was created",
-                "examples": ["1747214216", "1747214215"],
-                "constraints": "Non-null, >= 0",
-                "usage": "Used for filtering logs by time period"
-            },
-            {
-                "name": "type",
-                "type": "INTEGER",
-                "description": "Type of log entry (e.g., 2=model usage)",
-                "examples": ["2", "1"],
-                "constraints": "Non-null, >= 0"
-            },
-            {
-                "name": "content",
-                "type": "TEXT",
-                "description": "Human-readable description of the log entry",
-                "examples": ["模型倍率 1.25，补全倍率 4.00，分组倍率 1.00"],
-                "constraints": "Can be empty"
-            },
-            {
-                "name": "username",
-                "type": "TEXT",
-                "description": "Username of the account that made the API call",
-                "examples": ["aliyun", "admin"],
-                "constraints": "Non-null"
-            },
-            {
-                "name": "token_name",
-                "type": "TEXT",
-                "description": "Name of the token used for this API call",
-                "examples": ["aliyun-1", "aliyun"],
-                "constraints": "Non-null"
-            },
-            {
-                "name": "model_name",
-                "type": "TEXT",
-                "description": "Name of the AI model used",
-                "examples": ["gpt-4o", "deepseek-r1", "gpt-4o-mini"],
-                "constraints": "Non-null",
-                "usage": "Used for filtering usage by model"
-            },
-            {
-                "name": "quota",
-                "type": "INTEGER",
-                "description": "Quota cost for this API call",
-                "examples": ["3265", "14584"],
-                "constraints": "Non-null, >= 0",
-                "aggregation": "Often summed to show total cost"
-            },
-            {
-                "name": "prompt_tokens",
-                "type": "INTEGER",
-                "description": "Number of tokens in the prompt/input",
-                "examples": ["1884", "876"],
-                "constraints": "Non-null, >= 0",
-                "aggregation": "Often summed to show total input tokens"
-            },
-            {
-                "name": "completion_tokens",
-                "type": "INTEGER",
-                "description": "Number of tokens in the completion/output",
-                "examples": ["182", "13039"],
-                "constraints": "Non-null, >= 0",
-                "aggregation": "Often summed to show total output tokens"
-            },
-            {
-                "name": "use_time",
-                "type": "INTEGER",
-                "description": "Time taken to process this request in seconds",
-                "examples": ["10", "436"],
-                "constraints": "Non-null, >= 0",
-                "aggregation": "Often averaged to show performance"
-            },
-            {
-                "name": "is_stream",
-                "type": "INTEGER",
-                "description": "Whether the request used streaming (0=false, 1=true)",
-                "examples": ["0", "1"],
-                "constraints": "Non-null, 0 or 1",
-                "usage": "Used to distinguish between streaming and non-streaming requests"
-            },
-            {
-                "name": "channel",
-                "type": "INTEGER",
-                "description": "Channel ID used for this request",
-                "examples": ["2", "56", "51"],
-                "constraints": "Non-null, >= 0"
-            },
-            {
-                "name": "channel_name",
-                "type": "TEXT",
-                "description": "Descriptive name of the channel used",
-                "examples": ["ubang", "腾讯-混元-dp", "清风阁-gemini"],
-                "constraints": "Non-null"
-            },
-            {
-                "name": "token_id",
-                "type": "INTEGER",
-                "description": "ID of the token used for this request",
-                "examples": ["4", "2"],
-                "constraints": "Non-null, >= 0"
-            },
-            {
-                "name": "user_group",
-                "type": "TEXT",
-                "description": "User group for this request",
-                "examples": ["default", "vip"],
-                "constraints": "Non-null"
-            },
-            {
-                "name": "other",
-                "type": "TEXT",
-                "description": "JSON string containing additional metadata",
-                "examples": ["{\"admin_info\":{...},\"cache_ratio\":0.5,...}"],
-                "constraints": "Can be empty",
-                "usage": "Contains detailed pricing info and routing data"
-            }
-        ],
-        "table_description": "Contains detailed logs of all AI model API calls including tokens used, processing time, cost, and routing information",
-        "time_series_nature": "Data is time-series with created_at timestamps. Queries often involve time ranges and aggregations.",
-        "common_queries": [
-            "API calls by a specific user or token",
-            "Usage statistics for a particular model",
-            "Average response time by model or channel",
-            "Cost breakdown by model, user, or time period",
-            "Token usage patterns over time"
-        ],
-        "value_ranges": {
-            "quota": "Typically ranges from single digits to hundreds of thousands",
-            "prompt_tokens": "Typically ranges from tens to thousands",
-            "completion_tokens": "Typically ranges from single digits to tens of thousands",
-            "use_time": "Typically ranges from 1 to 500 seconds"
-        }
-    },
+    # "log": {
+    #     "endpoint": "/log/",
+    #     "params": {
+    #         "p": 1,
+    #         "page_size": 1000,
+    #         "type": 0,
+    #         "username": "",
+    #         "token_name": "",
+    #         "model_name": "",
+    #         "channel": "",
+    #         "group": ""
+    #         # start_timestamp and end_timestamp added at runtime
+    #     },
+    #     "response_key": "data.items",  # Note nested path to access items array
+    #     "columns": [
+    #         {
+    #             "name": "id",
+    #             "type": "INTEGER",
+    #             "description": "Unique identifier for the log entry",
+    #             "examples": ["144789993", "144789992"],
+    #             "constraints": "Non-null, primary key"
+    #         },
+    #         {
+    #             "name": "user_id",
+    #             "type": "INTEGER",
+    #             "description": "ID of the user who made the API call",
+    #             "examples": ["2", "101"],
+    #             "constraints": "Non-null, >= 0"
+    #         },
+    #         {
+    #             "name": "created_at",
+    #             "type": "INTEGER",
+    #             "description": "Unix timestamp when the log entry was created",
+    #             "examples": ["1747214216", "1747214215"],
+    #             "constraints": "Non-null, >= 0",
+    #             "usage": "Used for filtering logs by time period"
+    #         },
+    #         {
+    #             "name": "type",
+    #             "type": "INTEGER",
+    #             "description": "Type of log entry (e.g., 2=model usage)",
+    #             "examples": ["2", "1"],
+    #             "constraints": "Non-null, >= 0"
+    #         },
+    #         {
+    #             "name": "content",
+    #             "type": "TEXT",
+    #             "description": "Human-readable description of the log entry",
+    #             "examples": ["模型倍率 1.25，补全倍率 4.00，分组倍率 1.00"],
+    #             "constraints": "Can be empty"
+    #         },
+    #         {
+    #             "name": "username",
+    #             "type": "TEXT",
+    #             "description": "Username of the account that made the API call",
+    #             "examples": ["aliyun", "admin"],
+    #             "constraints": "Non-null"
+    #         },
+    #         {
+    #             "name": "token_name",
+    #             "type": "TEXT",
+    #             "description": "Name of the token used for this API call",
+    #             "examples": ["aliyun-1", "aliyun"],
+    #             "constraints": "Non-null"
+    #         },
+    #         {
+    #             "name": "model_name",
+    #             "type": "TEXT",
+    #             "description": "Name of the AI model used",
+    #             "examples": ["gpt-4o", "deepseek-r1", "gpt-4o-mini"],
+    #             "constraints": "Non-null",
+    #             "usage": "Used for filtering usage by model"
+    #         },
+    #         {
+    #             "name": "quota",
+    #             "type": "INTEGER",
+    #             "description": "Quota cost for this API call",
+    #             "examples": ["3265", "14584"],
+    #             "constraints": "Non-null, >= 0",
+    #             "aggregation": "Often summed to show total cost"
+    #         },
+    #         {
+    #             "name": "prompt_tokens",
+    #             "type": "INTEGER",
+    #             "description": "Number of tokens in the prompt/input",
+    #             "examples": ["1884", "876"],
+    #             "constraints": "Non-null, >= 0",
+    #             "aggregation": "Often summed to show total input tokens"
+    #         },
+    #         {
+    #             "name": "completion_tokens",
+    #             "type": "INTEGER",
+    #             "description": "Number of tokens in the completion/output",
+    #             "examples": ["182", "13039"],
+    #             "constraints": "Non-null, >= 0",
+    #             "aggregation": "Often summed to show total output tokens"
+    #         },
+    #         {
+    #             "name": "use_time",
+    #             "type": "INTEGER",
+    #             "description": "Time taken to process this request in seconds",
+    #             "examples": ["10", "436"],
+    #             "constraints": "Non-null, >= 0",
+    #             "aggregation": "Often averaged to show performance"
+    #         },
+    #         {
+    #             "name": "is_stream",
+    #             "type": "INTEGER",
+    #             "description": "Whether the request used streaming (0=false, 1=true)",
+    #             "examples": ["0", "1"],
+    #             "constraints": "Non-null, 0 or 1",
+    #             "usage": "Used to distinguish between streaming and non-streaming requests"
+    #         },
+    #         {
+    #             "name": "channel",
+    #             "type": "INTEGER",
+    #             "description": "Channel ID used for this request",
+    #             "examples": ["2", "56", "51"],
+    #             "constraints": "Non-null, >= 0"
+    #         },
+    #         {
+    #             "name": "channel_name",
+    #             "type": "TEXT",
+    #             "description": "Descriptive name of the channel used",
+    #             "examples": ["ubang-oai", "腾讯-混元-dp", "清风阁-gemini"],
+    #             "constraints": "Non-null"
+    #         },
+    #         {
+    #             "name": "token_id",
+    #             "type": "INTEGER",
+    #             "description": "ID of the token used for this request",
+    #             "examples": ["4", "2"],
+    #             "constraints": "Non-null, >= 0"
+    #         },
+    #         {
+    #             "name": "user_group",
+    #             "type": "TEXT",
+    #             "description": "User group for this request",
+    #             "examples": ["default", "vip"],
+    #             "constraints": "Non-null"
+    #         },
+    #         {
+    #             "name": "other",
+    #             "type": "TEXT",
+    #             "description": "JSON string containing additional metadata",
+    #             "examples": ["{\"admin_info\":{...},\"cache_ratio\":0.5,...}"],
+    #             "constraints": "Can be empty",
+    #             "usage": "Contains detailed pricing info and routing data"
+    #         }
+    #     ],
+    #     "table_description": "Contains detailed logs of all AI model API calls including tokens used, processing time, cost, and routing information",
+    #     "time_series_nature": "Data is time-series with created_at timestamps. Queries often involve time ranges and aggregations.",
+    #     "common_queries": [
+    #         "API calls by a specific user or token",
+    #         "Usage statistics for a particular model",
+    #         "Average response time by model or channel",
+    #         "Cost breakdown by model, user, or time period",
+    #         "Token usage patterns over time"
+    #     ],
+    #     "value_ranges": {
+    #         "quota": "Typically ranges from single digits to hundreds of thousands",
+    #         "prompt_tokens": "Typically ranges from tens to thousands",
+    #         "completion_tokens": "Typically ranges from single digits to tens of thousands",
+    #         "use_time": "Typically ranges from 1 to 500 seconds"
+    #     }
+    # },
     "channel": {
         "endpoint": "/channel/",
         "params": {
@@ -695,13 +696,13 @@ SCHEMA = {
                 "examples": ["1", "100"],
                 "constraints": "Non-null, >= 0"
             },
-            {
-                "name": "user_status",
-                "type": "INTEGER",
-                "description": "Account status (1=active)",
-                "examples": ["1", "0"],
-                "constraints": "Non-null, 0 or 1"
-            },
+            # {
+            #     "name": "user_status",
+            #     "type": "INTEGER",
+            #     "description": "Account status (1=active)",
+            #     "examples": ["1", "0"],
+            #     "constraints": "Non-null, 0 or 1"
+            # },
             {
                 "name": "email",
                 "type": "TEXT",
@@ -1196,8 +1197,7 @@ def print_table_stats(stats):
 
 def main():
     parser = argparse.ArgumentParser(description='Import data from APIs into SQLite database')
-    parser.add_argument('--start', type=int, help='Start timestamp (for time-series data)')
-    parser.add_argument('--end', type=int, help='End timestamp (for time-series data)')
+    parser.add_argument('--lastdays', type=int, help='Import data for the last N days')
     parser.add_argument('--session', type=str, help='Session cookie value')
     parser.add_argument('--tables', type=str, default='all', 
                        help='Comma-separated list of tables to import, or "all"')
@@ -1236,7 +1236,15 @@ def main():
         for table in tables:
             if table not in SCHEMA:
                 print(f"Warning: Table '{table}' not found in schema")
-    
+
+    # Calculate start and end timestamps based on --lastdays
+    if args.lastdays:
+        end = int(datetime.now().timestamp())
+        start = end - (args.lastdays * 86400)  # 86400 seconds in a day
+    else:
+        print("Error: --lastdays is required. Please specify the number of days.")
+        return
+        
     # Track the number of records imported for each table
     import_counts = {}
     
@@ -1255,7 +1263,7 @@ def main():
                         # Table might not exist yet
                         pass
                     
-                    process_table(conn, table, args.session, args.start, args.end)
+                    process_table(conn, table, args.session, start, end)
                     
                     # Count records after import
                     c = conn.cursor()

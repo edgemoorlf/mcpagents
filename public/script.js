@@ -312,6 +312,20 @@ document.addEventListener('DOMContentLoaded', () => {
             messageElement.appendChild(pElement);
         }
         
+        // Add retry button for user messages
+        if (sender === 'user') {
+            console.log('Adding retry button')
+            const retryButton = document.createElement('button');
+            retryButton.textContent = 'Retry';
+            retryButton.onclick = () => {
+                // Handle retry functionality here
+                // For example, you can clear the input field and focus on it
+                userInput.value = '';
+                userInput.focus();
+            };
+            messageElement.appendChild(retryButton);
+        }
+
         chatLog.appendChild(messageElement);
         chatLog.scrollTop = chatLog.scrollHeight; // Scroll to bottom
     }

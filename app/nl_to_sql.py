@@ -140,7 +140,7 @@ def format_schema_for_llm(db_schema: Dict) -> str:
 def construct_llm_prompt(question: str, chat_history: Optional[List[Dict[str, str]]], db_schema_description: str) -> str:
     history_str = format_chat_history_for_prompt(chat_history) if chat_history else ""
     
-    prompt = f"""You are an AI assistant that converts natural language questions into SQLite SQL queries.
+    prompt = f"""You are an AI assistant that converts natural language questions into SQLite3 SQL queries.
 Based on the provided database schema, user question, and conversation history, generate a single, valid SQLite query.
 Only output the SQL query. Do not include any explanations or markdown formatting.
 
@@ -155,6 +155,9 @@ Important Notes:
 5. For aggregations, consider using SUM, AVG, or COUNT as appropriate.
 6. The current time is {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, so if the user's question does not mention the year or month, use the current year and month.
 7. Vendor(供应商) is the name of the company that provides the model. It is a prefix of the channel name. So please use the vendor name to query the channel name with LIKE operator.
+8. For date ranges, strftime('%s', 'now', '-1 week') does not work for Sqlite. Use strftime('%s', 'now', '-7 days') instead.
+9. Except those special cases listed as examples in the column metadata, when querying against a name with Chinese, it is assumed to be a vendor name. When querying against a name with English, it is assumed to be a model name. When mixed, it is assumed to be a channel name.
+10. ubang, zmnz are all vendor name.
 
 Conversation History:
 {history_str}
