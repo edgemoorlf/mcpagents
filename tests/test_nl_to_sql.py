@@ -34,9 +34,9 @@ def run_test(question):
         print(f"Error executing SQL: {e}\n")
 
 test_questions = [
-    "How many tokens were consumed for deepseek-r1?",
-    "tokens used by gpt-4o between 1747130400 and 1747134000",
-    "How many requests for gemini-2.0-flash?",
+    "最近的1周金额消耗、总tokens、总次数情况?",
+    "最近的1天每个model调用次数分布情况?",
+    "最近1天平均rpm/tpm情况?",
     "request count for claude-3-7-sonnet-20250219 from 1747130400 to 1747137600",
     "What is the quota for gpt-4o-2024-08-06?",
     "quota of o1-preview",

@@ -1,85 +1,9 @@
-import re
 import sqlite3 # For type hinting and potential direct use later
 from datetime import datetime
 from typing import List, Tuple, Any, Optional, Dict
 from app.llm_service import llm_service
-from app.process_and_aggregate import export_schema_for_nl2sql
-
-# Get the schema from process_and_aggregate.py 
-TABLE_SCHEMA = export_schema_for_nl2sql()
-
-# Define a mapping of natural language patterns to SQL query builders
-# Each key is a regex, and each value is a function that takes match groups and returns SQL
-# Order matters: more specific patterns should come before general ones.
-
-def build_sum_query(match_groups: Tuple[str, ...], column: str) -> str:
-    # The first element in match_groups for these patterns is the model name.
-    # If time range is present, match_groups will have model_name, start_time, end_time
-    model_name = match_groups[0]
-    # Check if time range parameters are provided and are not None
-    if len(match_groups) == 3 and match_groups[1] is not None and match_groups[2] is not None: # with time range
-        start_time, end_time = match_groups[1], match_groups[2]
-        return f"SELECT SUM({column}) FROM model_stats WHERE model_name = '{model_name}' AND created_at BETWEEN {start_time} AND {end_time};"
-    return f"SELECT SUM({column}) FROM model_stats WHERE model_name = '{model_name}';"
-
-def build_list_query(match_groups: Tuple[str, ...], column: str) -> str:
-    if len(match_groups) > 0 and match_groups[0]: # specific model
-        model_name = match_groups[0]
-        return f"SELECT {column} FROM model_stats WHERE model_name = '{model_name}' ORDER BY created_at DESC LIMIT 10;" # Example: last 10 records for a model
-    return f"SELECT DISTINCT {column} FROM model_stats;"
-
-
-NL_TO_SQL_PATTERNS = [
-    # Token usage: "how many tokens for X [between A and B]" or "tokens used by X [from A to B]"
-    (re.compile(r"how many tokens .* for ([^\s?]+)(?: between (\d+) and (\d+))?\??", re.I),
-     lambda mg: build_sum_query(mg, "token_used")),
-    (re.compile(r"tokens used by ([^\s?]+)(?: from (\d+) to (\d+))?\??", re.I),
-     lambda mg: build_sum_query(mg, "token_used")),
-
-    # Count / Requests: "how many requests for X [between A and B]" or "request count for X [from A to B]"
-    (re.compile(r"how many requests .* for ([^\s?]+)(?: between (\d+) and (\d+))?\??", re.I),
-     lambda mg: build_sum_query(mg, "count")),
-    (re.compile(r"request count for ([^\s?]+)(?: from (\d+) to (\d+))?\??", re.I),
-     lambda mg: build_sum_query(mg, "count")),
-
-    # Quota: "what is the quota for X" or "quota of X"
-    (re.compile(r"what is the quota for ([^\s?]+)\??", re.I),
-     lambda mg: f"SELECT quota FROM model_stats WHERE model_name = '{mg[0]}' ORDER BY created_at DESC LIMIT 1;"),
-    (re.compile(r"quota of ([^\s?]+)\??", re.I),
-     lambda mg: f"SELECT quota FROM model_stats WHERE model_name = '{mg[0]}' ORDER BY created_at DESC LIMIT 1;"),
-
-    # List models: "list all models" or "what models are there"
-    (re.compile(r"list all models\??", re.I),
-     lambda mg: "SELECT DISTINCT model_name FROM model_stats;"),
-    (re.compile(r"what models are there\??", re.I),
-     lambda mg: "SELECT DISTINCT model_name FROM model_stats;"),
-
-    # Generic "what is the X for Y [between A and B]"
-    # The model name is group 1, optional start_time is group 2, optional end_time is group 3
-    # The target column (tokens/requests) is group 0
-    (re.compile(r"what is the (tokens|token_used|requests|count) for ([^\s?]+)(?: between (\d+) and (\d+))?\??", re.I),
-     lambda mg: build_sum_query( (mg[1], mg[2], mg[3]) , "token_used" if mg[0] in ["tokens", "token_used"] else "count")),
-]
-
-def generate_sql_from_question_regex(question: str) -> Optional[str]:
-    """
-    Tries to convert a natural language question into an SQL query
-    based on predefined patterns.
-    """
-    question_cleaned = question.strip() # Keep case for model names if needed, but patterns are case-insensitive
-    for pattern, query_builder_func in NL_TO_SQL_PATTERNS:
-        match = pattern.match(question_cleaned)
-        if match:
-            try:
-                # Pass only the captured groups to the builder
-                sql = query_builder_func(match.groups())
-                # Basic validation
-                if sql and "select " in sql.lower() and "from model_stats" in sql.lower():
-                    return sql
-            except Exception as e:
-                print(f"Error building SQL (regex) for pattern {pattern.pattern} with groups {match.groups()}: {e}")
-                continue
-    return None
+from app.schema_loader import load_schema
+import os
 
 # --- LLM-based NL2SQL (Conceptual) ---
 
@@ -92,6 +16,7 @@ def format_chat_history_for_prompt(chat_history: List[Dict[str, str]]) -> str:
 def format_schema_for_llm(db_schema: Dict) -> str:
     """
     Formats the enriched database schema into a detailed, LLM-friendly description.
+    Handles missing fields for compacted schemas.
     """
     schema_parts = []
     
@@ -99,7 +24,7 @@ def format_schema_for_llm(db_schema: Dict) -> str:
         # Start with table description
         parts = [
             f"Table '{table_name}':",
-            f"Purpose: {table_info['table_description']}",
+            f"Purpose: {table_info.get('table_description', '')}",
             "\nColumns:"
         ]
         
@@ -107,10 +32,12 @@ def format_schema_for_llm(db_schema: Dict) -> str:
         for col in table_info['columns']:
             col_desc = [
                 f"  - {col['name']} ({col['type']})",
-                f"    Description: {col['description']}",
-                f"    Constraints: {col['constraints']}",
-                f"    Example values: {', '.join(col['examples'])}"
+                f"    Description: {col.get('description', '')}"
             ]
+            if 'constraints' in col:
+                col_desc.append(f"    Constraints: {col['constraints']}")
+            if 'examples' in col:
+                col_desc.append(f"    Example values: {', '.join(col['examples'])}")
             if 'usage' in col:
                 col_desc.append(f"    Usage: {col['usage']}")
             if 'aggregation' in col:
@@ -137,80 +64,70 @@ def format_schema_for_llm(db_schema: Dict) -> str:
     
     return "\n".join(schema_parts)
 
-def construct_llm_prompt(question: str, chat_history: Optional[List[Dict[str, str]]], db_schema_description: str) -> str:
+def construct_llm_prompt(question: str, chat_history: Optional[List[Dict[str, str]]], db_schema_description: str, prompt_instructions: dict) -> str:
     history_str = format_chat_history_for_prompt(chat_history) if chat_history else ""
-    
-    prompt = f"""You are an AI assistant that converts natural language questions into SQLite3 SQL queries.
-Based on the provided database schema, user question, and conversation history, generate a single, valid SQLite query.
-Only output the SQL query. Do not include any explanations or markdown formatting.
-
-Database Schema Details:
-{db_schema_description}
-
-Important Notes:
-1. The data is time-series based, so consider time ranges from the conversation history.
-2. Model names are case-sensitive.
-3. All numeric columns (token_used, count, quota) should be >= 0.
-4. When querying time ranges, use the created_at column with BETWEEN clause.
-5. For aggregations, consider using SUM, AVG, or COUNT as appropriate.
-6. The current time is {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, so if the user's question does not mention the year or month, use the current year and month.
-7. Vendor(供应商) is the name of the company that provides the model. It is a prefix of the channel name. So please use the vendor name to query the channel name with LIKE operator.
-8. For date ranges, strftime('%s', 'now', '-1 week') does not work for Sqlite. Use strftime('%s', 'now', '-7 days') instead.
-9. Except those special cases listed as examples in the column metadata, when querying against a name with Chinese, it is assumed to be a vendor name. When querying against a name with English, it is assumed to be a model name. When mixed, it is assumed to be a channel name.
-10. ubang, zmnz are all vendor name.
-
-Conversation History:
-{history_str}
-
-Current User Question: {question}
-
-SQL Query:
-"""
+    sql_dialect = prompt_instructions.get("sql_dialect", "SQL")
+    notes = "\n".join(f"{i+1}. {n}" for i, n in enumerate(prompt_instructions.get("important_notes", [])))
+    extra_notes = "\n".join(prompt_instructions.get("notes", []))
+    prompt = f"""You are an AI assistant that converts natural language questions into {sql_dialect} queries.\nBased on the provided database schema, user question, and conversation history, generate a single, valid {sql_dialect} query.\nOnly output the SQL query. Do not include any explanations or markdown formatting.\n\nDatabase Schema Details:\n{db_schema_description}\n\nImportant Notes:\n{notes}\n{extra_notes}\n\nConversation History:\n{history_str}\n\nCurrent User Question: {question}\n\nSQL Query:\n"""
     return prompt
 
-def generate_sql_via_llm(question: str, chat_history: Optional[List[Dict[str, str]]], db_schema: Dict) -> Optional[str]:
+def clean_llm_sql_response(sql: str) -> str:
+    if not sql:
+        return ""
+    sql = sql.strip()
+    # Remove code block markers
+    if sql.startswith("```"):
+        sql = sql.strip("`")
+        # Remove language identifier if present
+        if sql.lower().startswith("sql"):
+            sql = sql[3:].lstrip()
+    # Remove leading 'SQL:' or similar
+    if sql[:4].lower() == "sql:":
+        sql = sql[4:].lstrip()
+    return sql.strip()
+
+def generate_sql_via_llm(question: str, chat_history: Optional[List[Dict[str, str]]], db_schema: Optional[Dict] = None, db_name: str = 'default', tables: Optional[List[str]] = None, debug: bool = False) -> Optional[str]:
     """
-    Generates SQL using the LLM service.
+    Generates SQL using the LLM service. Loads schema dynamically if not provided.
+    If debug is True or the environment variable NL2SQL_DEBUG is set, print prompt and LLM response.
     """
-    # Format the enriched schema for the LLM
-    schema_description = format_schema_for_llm(db_schema)
-    
-    # Construct the prompt with the formatted schema
-    prompt = construct_llm_prompt(question, chat_history, schema_description)
-    print(f"--- LLM PROMPT ---\n{prompt}\n------------------------------")
-    
+    # Load schema if not provided
+    if db_schema is None:
+        try:
+            db_schema = load_schema(db_name=db_name, tables=tables)
+        except Exception as e:
+            print(f"Error loading schema for db '{db_name}': {e}")
+            return None
+    # Extract prompt instructions from schema
+    prompt_instructions = db_schema.get('llm_prompt_instructions', {})
+    # Remove llm_prompt_instructions from schema before formatting
+    schema_for_llm = {k: v for k, v in db_schema.items() if k != 'llm_prompt_instructions'}
+    schema_description = format_schema_for_llm(schema_for_llm)
+    prompt = construct_llm_prompt(question, chat_history, schema_description, prompt_instructions)
+    debug_mode = debug or os.environ.get('NL2SQL_DEBUG', '').lower() in ('1', 'true', 'yes')
+    if debug_mode:
+        print("\n--- LLM PROMPT (DEBUG MODE) ---\n" + prompt + "\n------------------------------")
     try:
-        # Use the LLM service to generate SQL
         sql_query = llm_service.generate_completion(
-            system_prompt="You are a SQL expert that converts natural language to SQLite queries.",
+            system_prompt=f"You are a SQL expert that converts natural language to {prompt_instructions.get('sql_dialect', 'SQL')} queries.",
             user_prompt=prompt
         )
-        
-        # Basic validation - ensure it's a SQL query
-        if not sql_query or not sql_query.lower().startswith(('select', 'with')):
+        if debug_mode:
+            print("\n--- LLM RAW RESPONSE (DEBUG MODE) ---\n" + str(sql_query) + "\n------------------------------")
+        sql_query_clean = clean_llm_sql_response(sql_query)
+        if not sql_query_clean.lower().startswith(('select', 'with')):
             print("LLM did not generate a valid SQL query")
             return None
-            
-        return sql_query
-        
+        return sql_query_clean
     except Exception as e:
         print(f"Error generating SQL via LLM: {str(e)}")
         return None
 
-# Renaming the original function to avoid confusion
-generate_sql_from_question = generate_sql_from_question_regex
+# Only LLM-based SQL generation is now supported.
+generate_sql_from_question = generate_sql_via_llm
 
 if __name__ == '__main__':
-    # Test Regex-based
-    print("--- TESTING REGEX-BASED ---")
-    test_questions_regex = [
-        "How many tokens were consumed for deepseek-r1?",
-        "List all models."
-    ]
-    for q in test_questions_regex:
-        sql = generate_sql_from_question_regex(q)
-        print(f"Q: {q}\nSQL (Regex): {sql}\n")
-
     # Test Conceptual LLM-based
     print("\n--- TESTING CONCEPTUAL LLM-BASED ---")
     sample_history_with_time = [
@@ -223,5 +140,5 @@ if __name__ == '__main__':
     ]
     for q_llm, history in test_questions_llm:
         print(f"Testing LLM with Q: {q_llm}")
-        sql_llm = generate_sql_via_llm(q_llm, history, TABLE_SCHEMA)
+        sql_llm = generate_sql_via_llm(q_llm, history, db_name='default')
         print(f"SQL (Conceptual LLM): {sql_llm}\n") 

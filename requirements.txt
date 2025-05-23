@@ -3,3 +3,4 @@ uvicorn
 pydantic
 requests
 pytest
+pymysql>=1.0.2

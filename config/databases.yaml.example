@@ -1,0 +1,15 @@
+default:
+  type: sqlite
+  path: data/model_stats.db
+  schema_path: data/schema.json
+
+mysql:
+  type: mysql
+  connection:
+    host: 192.168.1.191
+    user: your_user
+    password: your_password
+    port: 3306
+    charset: utf8mb4
+    database: your_db
+  schema_path: data/mysql_schema.json

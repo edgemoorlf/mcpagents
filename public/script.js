@@ -1,4 +1,7 @@
+console.log('Script loaded');
+
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM Content Loaded');
     const chatLog = document.getElementById('chat-log');
     const userInput = document.getElementById('user-input');
     const sendButton = document.getElementById('send-button');
@@ -11,6 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Audio recording variables
     let mediaRecorder;
     let audioChunks = [];
+    
+    // Store the last request for retry functionality
+    let lastRequest = null;
     
     // Check for supported MIME types
     function getSupportedMimeType() {
@@ -298,97 +304,206 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function addMessageToLog(message, sender, isHtml = false) {
-        const messageElement = document.createElement('div');
-        messageElement.classList.add('message', sender === 'user' ? 'user-message' : 'assistant-message');
+        console.log('Adding message:', { message, sender, isHtml });
         
-        if (isHtml) {
-            // For assistant messages that might contain preformatted SQL/results
-            const preElement = document.createElement('pre');
-            preElement.textContent = message; // Use textContent to avoid XSS with raw HTML from server
-            messageElement.appendChild(preElement);
+        const messageElement = document.createElement('div');
+        messageElement.className = `message ${sender}-message`;
+        
+        // Create a container for the message content and button
+        const contentContainer = document.createElement('div');
+        contentContainer.style.display = 'flex';
+        contentContainer.style.alignItems = 'center';
+        contentContainer.style.gap = '10px';
+        
+        // Create message content
+        const messageContent = document.createElement('div');
+        
+        // Check if the message contains SQL results (pipe-separated format)
+        if (message.includes('|')) {
+            // Split the message into lines
+            const lines = message.split('\n').filter(line => line.trim());
+            
+            if (lines.length >= 2) {
+                // Create table for SQL results
+                const table = document.createElement('table');
+                table.className = 'sql-results-table';
+                
+                // Create table header from first line
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                const headers = lines[0].split('|').map(h => h.trim());
+                headers.forEach(header => {
+                    const th = document.createElement('th');
+                    th.textContent = header;
+                    headerRow.appendChild(th);
+                });
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+                
+                // Create table body from remaining lines
+                const tbody = document.createElement('tbody');
+                for (let i = 1; i < lines.length; i++) {
+                    const tr = document.createElement('tr');
+                    const values = lines[i].split('|').map(v => v.trim());
+                    values.forEach(value => {
+                        const td = document.createElement('td');
+                        // Format numbers if they're numeric
+                        if (!isNaN(value) && value.trim() !== '') {
+                            // If it's a decimal number, format it to 4 decimal places
+                            if (value.includes('.')) {
+                                td.textContent = Number(value).toFixed(4);
+                            } else {
+                                td.textContent = Number(value).toLocaleString();
+                            }
+                        } else {
+                            td.textContent = value;
+                        }
+                        tr.appendChild(td);
+                    });
+                    tbody.appendChild(tr);
+                }
+                table.appendChild(tbody);
+                
+                messageContent.appendChild(table);
+            } else {
+                // Not enough lines for a table, display as normal text
+                if (isHtml) {
+                    messageContent.innerHTML = message;
+                } else {
+                    messageContent.textContent = message;
+                }
+            }
         } else {
-            const pElement = document.createElement('p');
-            pElement.textContent = message;
-            messageElement.appendChild(pElement);
+            // Not SQL results, display as normal text
+            if (isHtml) {
+                messageContent.innerHTML = message;
+            } else {
+                messageContent.textContent = message;
+            }
         }
         
-        // Add retry button for user messages
-        if (sender === 'user') {
-            console.log('Adding retry button')
+        contentContainer.appendChild(messageContent);
+        
+        // Add retry button for all assistant messages
+        if (sender === 'assistant') {
+            console.log('Creating retry button');
+            
             const retryButton = document.createElement('button');
             retryButton.textContent = 'Retry';
-            retryButton.onclick = () => {
-                // Handle retry functionality here
-                // For example, you can clear the input field and focus on it
-                userInput.value = '';
-                userInput.focus();
-            };
-            messageElement.appendChild(retryButton);
+            retryButton.className = 'retry-button';
+            retryButton.style.cssText = `
+                margin-left: 10px;
+                padding: 5px 10px;
+                background-color: #f0f0f0;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+            `;
+            
+            // Add click handler
+            retryButton.addEventListener('click', async function(e) {
+                console.log('Retry button clicked');
+                e.preventDefault();
+                e.stopPropagation();
+                
+                if (lastRequest) {
+                    console.log('Retrying request:', lastRequest);
+                    
+                    // Disable the retry button while retrying
+                    this.disabled = true;
+                    this.textContent = 'Retrying...';
+                    
+                    try {
+                        // Remove the current message
+                        messageElement.remove();
+                        
+                        // Retry the last request
+                        const response = await fetch('/ask', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(lastRequest)
+                        });
+                        
+                        const result = await response.json();
+                        console.log('Retry response:', result);
+                        
+                        if (result.error) {
+                            addMessageToLog(result.error, 'assistant');
+                        } else {
+                            addMessageToLog(result.answer, 'assistant');
+                            chatHistory.push({ role: 'assistant', content: result.answer });
+                        }
+                    } catch (error) {
+                        console.error('Retry error:', error);
+                        addMessageToLog(`Retry failed: ${error.message}`, 'assistant');
+                    } finally {
+                        // Re-enable the retry button
+                        this.disabled = false;
+                        this.textContent = 'Retry';
+                    }
+                } else {
+                    console.log('No lastRequest available');
+                }
+            });
+            
+            contentContainer.appendChild(retryButton);
         }
-
+        
+        messageElement.appendChild(contentContainer);
         chatLog.appendChild(messageElement);
-        chatLog.scrollTop = chatLog.scrollHeight; // Scroll to bottom
+        chatLog.scrollTop = chatLog.scrollHeight;
     }
 
     async function sendMessage() {
         const question = userInput.value.trim();
         if (!question) return;
-
+        
+        console.log('Sending message:', question); // Debug log 11
+        
+        // Store the current request for potential retry
+        lastRequest = {
+            question: question,
+            chat_history: [...chatHistory] // Create a copy of the chat history
+        };
+        
+        console.log('Stored lastRequest:', lastRequest); // Debug log 12
+        
+        // Add user message to chat
         addMessageToLog(question, 'user');
+        userInput.value = '';
+        
+        // Add user message to chat history
         chatHistory.push({ role: 'user', content: question });
-        userInput.value = ''; // Clear input field
-
-        // Create a placeholder for the assistant's response
-        const assistantMessageContainer = document.createElement('div');
-        assistantMessageContainer.classList.add('message', 'assistant-message');
-        const assistantPreElement = document.createElement('pre');
-        assistantMessageContainer.appendChild(assistantPreElement);
-        chatLog.appendChild(assistantMessageContainer);
-        chatLog.scrollTop = chatLog.scrollHeight;
-
-        let fullResponse = '';
-
+        
         try {
-            const response = await fetch('/ask/stream', {
+            const response = await fetch('/ask', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     question: question,
-                    chat_history: chatHistory.slice(0, -1) // Send history *before* current question
-                }),
+                    chat_history: chatHistory
+                })
             });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                assistantPreElement.textContent = `Error: ${response.status} ${errorText || response.statusText}`;
-                chatHistory.push({ role: 'assistant', content: `Error: ${response.status} ${errorText || response.statusText}` });
-                return;
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let reading = true;
-
-            while(reading) {
-                const { done, value } = await reader.read();
-                if (done) {
-                    reading = false;
-                    break;
-                }
-                const chunk = decoder.decode(value, { stream: true });
-                fullResponse += chunk;
-                assistantPreElement.textContent = fullResponse; // Update pre element with new chunk
-                chatLog.scrollTop = chatLog.scrollHeight;
-            }
             
+            const result = await response.json();
+            console.log('Response received:', result); // Debug log 13
+            
+            if (result.error) {
+                addMessageToLog(result.error, 'assistant');
+            } else {
+                addMessageToLog(result.answer, 'assistant');
+                // Add assistant response to chat history
+                chatHistory.push({ role: 'assistant', content: result.answer });
+            }
         } catch (error) {
-            console.error('Error sending message:', error);
-            fullResponse = `Error: Could not connect to the server. ${error.message}`;
-            assistantPreElement.textContent = fullResponse;
+            console.error('Send message error:', error); // Debug log 14
+            addMessageToLog(`Error: ${error.message}`, 'assistant');
         }
-        chatHistory.push({ role: 'assistant', content: fullResponse });
     }
 
     // Setup event listeners

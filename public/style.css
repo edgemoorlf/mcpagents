@@ -29,11 +29,16 @@ body {
 }
 
 .message {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     margin-bottom: 15px;
     padding: 10px 15px;
     border-radius: 18px;
     max-width: 80%;
     line-height: 1.4;
+    background-color: #e9e9eb;
+    color: #333;
 }
 
 .user-message {
@@ -146,4 +151,94 @@ body {
 .chat-log > div > p {
     margin-block-start: 0;
     margin-block-end: 0;
+}
+
+.retry-button {
+    margin-left: 10px;
+    padding: 5px 10px;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color 0.2s;
+}
+
+.retry-button:hover {
+    background-color: #e0e0e0;
+}
+
+.retry-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.sql-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 14px;
+    background-color: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.sql-results-table th {
+    background-color: #f8f9fa;
+    color: #333;
+    font-weight: 600;
+    text-align: left;
+    padding: 12px;
+    border-bottom: 2px solid #dee2e6;
+    white-space: nowrap;
+}
+
+.sql-results-table td {
+    padding: 12px;
+    border-bottom: 1px solid #dee2e6;
+    color: #333;
+    text-align: right; /* Right-align numeric values */
+}
+
+.sql-results-table tr:hover {
+    background-color: #f8f9fa;
+}
+
+.sql-results-table th:first-child,
+.sql-results-table td:first-child {
+    padding-left: 15px;
+}
+
+.sql-results-table th:last-child,
+.sql-results-table td:last-child {
+    padding-right: 15px;
+}
+
+/* Make the table scrollable horizontally if it's too wide */
+.message {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+/* Ensure the table doesn't overflow the message container */
+.message .sql-results-table {
+    min-width: 100%;
+    max-width: 100%;
+}
+
+/* Style for the message container */
+.message {
+    margin-bottom: 15px;
+    padding: 10px 15px;
+    border-radius: 18px;
+    max-width: 80%;
+    line-height: 1.4;
+    background-color: #e9e9eb;
+    color: #333;
+}
+
+.assistant-message {
+    align-self: flex-start;
+    margin-right: auto;
 } 

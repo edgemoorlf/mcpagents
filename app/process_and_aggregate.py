@@ -1306,3 +1306,9 @@ def main():
 
 if __name__ == '__main__':
     main() 
+    # Export SCHEMA to data/schema.json after import
+    def export_schema_to_json(path="data/schema.json"):
+        import json
+        with open(path, "w") as f:
+            json.dump(SCHEMA, f, indent=2, ensure_ascii=False)
+    export_schema_to_json() 
