@@ -3,7 +3,6 @@ import os
 import sys
 import logging
 import argparse
-from datetime import datetime, timedelta
 import pymysql
 from pymysql import Error
 import yaml
@@ -17,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='Populate channel data from quota data')
+    parser = argparse.ArgumentParser(description='Populate channel model data from logs')
     parser.add_argument('--db_name', 
-                       required=True,  # Make it required instead of having a default
+                       required=True,
                        help='Database profile name from databases.yaml')
     return parser.parse_args()
 
@@ -67,7 +66,7 @@ def check_existing_data(connection, timestamp):
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT COUNT(*) as count
-                FROM channel_data 
+                FROM channel_model_data 
                 WHERE created_at = %s
             """, (timestamp,))
             result = cursor.fetchone()
@@ -77,38 +76,31 @@ def check_existing_data(connection, timestamp):
         return False
 
 def get_all_timestamps(connection):
-    """Get all timestamps from quota_data table"""
+    """Get all timestamps from logs table"""
     try:
         with connection.cursor() as cursor:
             query = """
-                SELECT DISTINCT created_at
-                FROM quota_data
-                ORDER BY created_at DESC
+                SELECT DISTINCT 
+                    FLOOR(created_at/3600)*3600 as hourly_timestamp
+                FROM logs
+                ORDER BY hourly_timestamp DESC
             """
-            # logger.info("Generated SQL query for timestamps:")
-            # logger.info(f"Query: {query}")
-            
             cursor.execute(query)
-            # Keep timestamps as integers
-            return [row['created_at'] for row in cursor.fetchall()]
+            return [row['hourly_timestamp'] for row in cursor.fetchall()]
     except Error as e:
         logger.error(f"Error getting timestamps: {e}")
         return []
 
 def get_existing_timestamps(connection):
-    """Get all timestamps that already have data in channel_data"""
+    """Get all timestamps that already have data in channel_model_data"""
     try:
         with connection.cursor() as cursor:
             query = """
                 SELECT DISTINCT created_at
-                FROM channel_data
+                FROM channel_model_data
                 ORDER BY created_at
             """
-            logger.info("Generated SQL query for existing timestamps:")
-            logger.info(f"Query: {query}")
-            
             cursor.execute(query)
-            # Keep timestamps as integers
             return {row['created_at'] for row in cursor.fetchall()}
     except Error as e:
         logger.error(f"Error getting existing timestamps: {e}")
@@ -128,58 +120,54 @@ def get_channel_name_map(connection):
         logger.error(f"Error getting channel names: {e}")
         return {}
 
-def get_channel_summary(connection, start_time, end_time):
-    """Get channel summary data for the given time range"""
+def get_channel_model_summary(connection, start_time, end_time):
+    """Get channel and model summary data for the given time range"""
     try:
         with connection.cursor() as cursor:
             query = """
                 SELECT 
                     channel_id,
+                    model_name,
                     SUM(completion_tokens + prompt_tokens) as token_used,
                     COUNT(*) as count,
                     SUM(quota) as quota
                 FROM logs
                 WHERE created_at >= %s AND created_at < %s
-                GROUP BY channel_id
+                GROUP BY channel_id, model_name
             """
             params = (start_time, end_time)
             
-            # Log the SQL query with parameters
             logger.info("Generated SQL query:")
             logger.info(f"Query: {query}")
             logger.info(f"Parameters: start_time={start_time}, end_time={end_time}")
             
-            # Execute the main query
             cursor.execute(query, params)
             return cursor.fetchall()
     except Error as e:
-        logger.error(f"Error getting channel summary: {e}")
+        logger.error(f"Error getting channel model summary: {e}")
         return []
 
-def insert_channel_data(connection, data, timestamp, channel_name_map):
-    """Insert channel data into the channel_data table"""
+def insert_channel_model_data(connection, data, timestamp, channel_name_map):
+    """Insert channel model data into the channel_model_data table"""
     try:
         with connection.cursor() as cursor:
             insert_query = """
-                INSERT INTO channel_data 
-                (channel_id, channel_name, created_at, token_used, count, quota)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO channel_model_data 
+                (channel_id, channel_name, model_name, created_at, token_used, count, quota)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            # Ensure timestamp is an integer
-            if isinstance(timestamp, datetime):
-                timestamp = int(timestamp.timestamp())
             
             values = [
-                (row['channel_id'], 
-                 channel_name_map.get(row['channel_id'], 'Unknown'),  # Use channel_name_map to get name
-                 timestamp, 
-                 row['token_used'], 
-                 row['count'], 
+                (row['channel_id'],
+                 channel_name_map.get(row['channel_id'], 'Unknown'),
+                 row['model_name'],
+                 timestamp,
+                 row['token_used'],
+                 row['count'],
                  row['quota'])
                 for row in data
             ]
             
-            # Log the insert query and first few values
             logger.info("Generated INSERT query:")
             logger.info(f"Query: {insert_query}")
             if values:
@@ -190,7 +178,7 @@ def insert_channel_data(connection, data, timestamp, channel_name_map):
         connection.commit()
         return True
     except Error as e:
-        logger.error(f"Error inserting channel data: {e}")
+        logger.error(f"Error inserting channel model data: {e}")
         connection.rollback()
         return False
 
@@ -211,17 +199,17 @@ def main():
         channel_name_map = get_channel_name_map(connection)
         logger.info(f"Loaded {len(channel_name_map)} channel names")
         
-        # Get all timestamps from quota_data
+        # Get all timestamps from logs
         all_timestamps = get_all_timestamps(connection)
         if not all_timestamps:
-            logger.error("No data found in quota_data table")
+            logger.error("No data found in logs table")
             return
         
-        logger.info(f"Found {len(all_timestamps)} timestamps in quota_data")
+        logger.info(f"Found {len(all_timestamps)} timestamps in logs")
         
-        # Get existing timestamps in channel_data
+        # Get existing timestamps in channel_model_data
         existing_timestamps = get_existing_timestamps(connection)
-        logger.info(f"Found {len(existing_timestamps)} existing timestamps in channel_data")
+        logger.info(f"Found {len(existing_timestamps)} existing timestamps in channel_model_data")
         
         # Find timestamps that need processing
         timestamps_to_process = [ts for ts in all_timestamps if ts not in existing_timestamps]
@@ -234,25 +222,25 @@ def main():
 
             # Check if data already exists for this timestamp
             if check_existing_data(connection, timestamp):
-                logger.info(f"channel_data already exists for timestamp {timestamp}, skipping.")
-                break
+                logger.info(f"channel_model_data already exists for timestamp {timestamp}, skipping.")
+                continue
 
             logger.info(f"Processing time range: {start_time} to {end_time}")
             
-            # Get channel summary data
-            channel_summary = get_channel_summary(connection, start_time, end_time)
-            if not channel_summary:
-                logger.info(f"No channel data found for timestamp {timestamp}")
+            # Get channel and model summary data
+            channel_model_summary = get_channel_model_summary(connection, start_time, end_time)
+            if not channel_model_summary:
+                logger.info(f"No channel model data found for timestamp {timestamp}")
                 continue
             
             # Insert the data
-            if insert_channel_data(connection, channel_summary, timestamp, channel_name_map):
-                logger.info(f"Successfully inserted {len(channel_summary)} channel records for timestamp {timestamp}")
+            if insert_channel_model_data(connection, channel_model_summary, timestamp, channel_name_map):
+                logger.info(f"Successfully inserted {len(channel_model_summary)} channel model records for timestamp {timestamp}")
             else:
-                logger.error(f"Failed to insert channel data for timestamp {timestamp}")
+                logger.error(f"Failed to insert channel model data for timestamp {timestamp}")
     
     finally:
         connection.close()
 
 if __name__ == "__main__":
-    main()
+    main() 

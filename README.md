@@ -36,7 +36,7 @@ You can adapt the `get_model_token_usage` function for other models and time ran
 A web-based chatbox backend is provided using FastAPI. To run it:
 
 ```bash
-uvicorn app.chatbox:app --reload
+uvicorn app.chat_service:app --reload
 ```
 
 You can then POST questions to the `/ask` endpoint. Example using `curl`:

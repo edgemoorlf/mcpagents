@@ -109,10 +109,31 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isHtml) {
                 messageContent.innerHTML = message;
             } else {
-                messageContent.textContent = message;
+                // Enhanced formatting for single-value responses
+                let formatted = message;
+                const trimmed = message.trim();
+                // USD formatting: e.g. '123.45 USD', '$123.45', 'cost: 123.45', 'quota: 123.45'
+                if (/^(\$?\d+(\.\d+)?(\s*usd)?|cost: ?\d+(\.\d+)?|quota: ?\d+(\.\d+)?)/i.test(trimmed)) {
+                    let num = trimmed.match(/\d+(\.\d+)?/);
+                    if (num) {
+                        formatted = `$${Number(num[0]).toFixed(2)}`;
+                    }
+                } else if (/^(\d+(\.\d+)?\s*%|percent|percentage)/i.test(trimmed) || /\d+(\.\d+)?\s*%$/.test(trimmed)) {
+                    let num = trimmed.match(/\d+(\.\d+)?/);
+                    if (num) {
+                        formatted = `${Number(num[0]).toFixed(2)}%`;
+                    }
+                } else if (!isNaN(trimmed) && trimmed !== '') {
+                    if (trimmed.includes('.')) {
+                        formatted = Number(trimmed).toFixed(4);
+                    } else {
+                        formatted = Number(trimmed).toLocaleString();
+                    }
+                }
+                messageContent.textContent = formatted;
             }
         }
-        
+                
         contentContainer.appendChild(messageContent);
         
         // Add retry button for all assistant messages
