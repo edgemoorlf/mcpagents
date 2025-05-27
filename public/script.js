@@ -91,13 +91,88 @@ document.addEventListener('DOMContentLoaded', () => {
         return { type: chartType, data: chartData, options: chartOptions };
     }
 
-    // Function to download chart as SVG
-    function downloadChartAsSVG(chart, filename = 'chart.svg') {
-        const svgUrl = chart.toBase64Image('image/svg+xml');
-        const downloadLink = document.createElement('a');
-        downloadLink.href = svgUrl;
-        downloadLink.download = filename;
-        downloadLink.click();
+    // Add column name translations
+    const columnTranslations = {
+        // Time related
+        'created_at': '时间',
+        'timestamp': '时间戳',
+        'hour': '小时',
+        'date': '日期',
+        'time': '时间',
+        
+        // Model related
+        'model_name': '模型名称',
+        'model': '模型',
+        'model_type': '模型类型',
+        
+        // Usage metrics
+        'token_used': '消耗token数',
+        'tokens': 'token数',
+        'prompt_tokens': '输入token数',
+        'completion_tokens': '输出token数',
+        'total_tokens': '总token数',
+        'count': '调用次数',
+        'requests': '请求数',
+        'rpm': '每分钟请求数',
+        'tpm': '每分钟token数',
+        
+        // Cost related
+        'quota': '配额消耗',
+        'cost': '成本',
+        'price': '价格',
+        'amount': '金额',
+        
+        // Channel related
+        'channel': '渠道',
+        'channel_name': '渠道名称',
+        'channel_id': '渠道ID',
+        
+        // User related
+        'user': '用户',
+        'username': '用户名',
+        'user_id': '用户ID',
+        'user_group': '用户组',
+        
+        // Performance metrics
+        'latency': '延迟',
+        'duration': '持续时间',
+        'use_time': '使用时间',
+        
+        // Percentage metrics
+        'percentage': '百分比',
+        'ratio': '比率',
+        'rate': '比率',
+        
+        // Status
+        'status': '状态',
+        'success': '成功',
+        'failed': '失败',
+        
+        // Others
+        'total': '总计',
+        'average': '平均值',
+        'max': '最大值',
+        'min': '最小值'
+    };
+
+    function translateColumnName(columnName) {
+        // Convert to lowercase and remove underscores for matching
+        const normalizedName = columnName.toLowerCase().trim();
+        
+        // Try exact match first
+        if (columnTranslations[normalizedName]) {
+            return columnTranslations[normalizedName];
+        }
+        
+        // Try partial matches
+        for (const [key, value] of Object.entries(columnTranslations)) {
+            if (normalizedName.includes(key)) {
+                return value;
+            }
+        }
+        
+        // If no match found, return original
+        return columnName;
     }
 
     function addMessageToLog(message, sender, isHtml = false) {
@@ -117,48 +192,79 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Check if we should create a visualization
         if (sender === 'assistant' && shouldVisualize(lastRequest?.question || '', message)) {
-            // First add the table
+            // Create a single table for both chart and data
+            const tableDiv = document.createElement('div');
+            tableDiv.className = 'table-wrapper';
+            tableDiv.style.width = '100%';
+            
+            // Create separate tables for chart and data
+            // Chart table
+            const chartTable = document.createElement('table');
+            chartTable.className = 'chart-table';
+            const chartRow = document.createElement('tr');
+            const chartCell = document.createElement('td');
+            chartCell.className = 'chart-cell';
+            
+            const chartContainer = document.createElement('div');
+            chartContainer.className = 'chart-container';
+            
+            const canvas = document.createElement('canvas');
+            chartContainer.appendChild(canvas);
+            
+            const chartConfig = createChart(message, lastRequest?.question || '');
+            if (chartConfig) {
+                currentChart = new Chart(canvas, chartConfig);
+                chartCell.appendChild(chartContainer);
+                chartRow.appendChild(chartCell);
+                chartTable.appendChild(chartRow);
+            }
+            
+            // Add delimiter
+            const delimiter = document.createElement('div');
+            delimiter.className = 'table-delimiter';
+            
+            // Data table
+            const dataTable = document.createElement('table');
+            dataTable.className = 'sql-results-table';
+            
             if (message.includes('|')) {
-                const tableDiv = document.createElement('div');
-                tableDiv.style.width = '100%';
-                tableDiv.style.marginBottom = '20px';
-                
-                // Create table for SQL results
                 const lines = message.split('\n').filter(line => line.trim());
-                
                 if (lines.length >= 2) {
-                    const table = document.createElement('table');
-                    table.className = 'sql-results-table';
-                    
-                    // Create table header from first line
+                    // Create table header
                     const thead = document.createElement('thead');
                     const headerRow = document.createElement('tr');
                     const headers = lines[0].split('|').map(h => h.trim());
-                    headers.forEach(header => {
+                    
+                    // Determine column types by checking first data row
+                    const firstDataRow = lines[1].split('|').map(v => v.trim());
+                    const columnTypes = firstDataRow.map(value => !isNaN(value) && value.trim() !== '' ? 'numeric' : 'text');
+                    
+                    headers.forEach((header, idx) => {
                         const th = document.createElement('th');
-                        th.textContent = header;
+                        const translatedHeader = translateColumnName(header);
+                        
+                        // Show both English and Chinese if translation exists and is different
+                        if (translatedHeader !== header) {
+                            th.innerHTML = `${translatedHeader}<br><span class="original-header">${header}</span>`;
+                        } else {
+                            th.textContent = header;
+                        }
+                        
+                        th.className = columnTypes[idx] + '-col';
                         headerRow.appendChild(th);
                     });
                     thead.appendChild(headerRow);
-                    table.appendChild(thead);
+                    dataTable.appendChild(thead);
                     
-                    // Identify columns for special formatting
-                    const usdColumns = headers.map(h => h.toLowerCase()).map((h, i) => (h.includes('usd') || h.includes('cost') || h.includes('quota')) ? i : -1).filter(i => i !== -1);
-                    const percentColumns = headers.map(h => h.toLowerCase()).map((h, i) => (h.includes('percent') || h.includes('percentage')) ? i : -1).filter(i => i !== -1);
-                    
-                    // Create table body from remaining lines
+                    // Create table body
                     const tbody = document.createElement('tbody');
                     for (let i = 1; i < lines.length; i++) {
                         const tr = document.createElement('tr');
                         const values = lines[i].split('|').map(v => v.trim());
                         values.forEach((value, colIdx) => {
                             const td = document.createElement('td');
-                            // Format USD columns
-                            if (usdColumns.includes(colIdx) && !isNaN(value) && value.trim() !== '') {
-                                td.textContent = `$${Number(value).toFixed(2)}`;
-                            } else if (percentColumns.includes(colIdx) && !isNaN(value) && value.trim() !== '') {
-                                td.textContent = `${Number(value).toFixed(2)}%`;
-                            } else if (!isNaN(value) && value.trim() !== '') {
+                            td.className = columnTypes[colIdx] + '-col';
+                            if (!isNaN(value) && value.trim() !== '') {
                                 if (value.includes('.')) {
                                     td.textContent = Number(value).toFixed(4);
                                 } else {
@@ -171,46 +277,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                         tbody.appendChild(tr);
                     }
-                    table.appendChild(tbody);
-                    
-                    tableDiv.appendChild(table);
+                    dataTable.appendChild(tbody);
                 }
-                messageContent.appendChild(tableDiv);
             }
-
-            // Then add the chart
-            const chartContainer = document.createElement('div');
-            chartContainer.className = 'chart-container';
-            chartContainer.style.width = '100%';
-            chartContainer.style.height = '400px';
-            chartContainer.style.marginTop = '20px';
             
-            const canvas = document.createElement('canvas');
-            chartContainer.appendChild(canvas);
-            
-            const chartConfig = createChart(message, lastRequest?.question || '');
-            if (chartConfig) {
-                // Create download button
-                const downloadButton = document.createElement('button');
-                downloadButton.textContent = 'Download as SVG';
-                downloadButton.className = 'download-button';
-                downloadButton.style.marginTop = '10px';
-                
-                // Create the chart
-                currentChart = new Chart(canvas, chartConfig);
-                
-                // Add download handler
-                downloadButton.addEventListener('click', () => {
-                    downloadChartAsSVG(currentChart);
-                });
-                
-                chartContainer.appendChild(downloadButton);
-                messageContent.appendChild(chartContainer);
-            }
+            // Append everything in correct order
+            tableDiv.appendChild(chartTable);
+            tableDiv.appendChild(delimiter);
+            tableDiv.appendChild(dataTable);
+            messageContent.appendChild(tableDiv);
         } else if (message.includes('|')) {
-            // Regular table handling
-            const lines = message.split('\n').filter(line => line.trim());
+            // Regular table handling for non-chart cases
+            const tableDiv = document.createElement('div');
+            tableDiv.className = 'table-wrapper';
+            tableDiv.style.width = '100%';
             
+            const lines = message.split('\n').filter(line => line.trim());
             if (lines.length >= 2) {
                 const table = document.createElement('table');
                 table.className = 'sql-results-table';
@@ -258,8 +340,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 table.appendChild(tbody);
                 
-                messageContent.appendChild(table);
+                tableDiv.appendChild(table);
             }
+            messageContent.appendChild(tableDiv);
         } else {
             if (isHtml) {
                 messageContent.innerHTML = message;
@@ -291,13 +374,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 
         contentContainer.appendChild(messageContent);
         
-        // Move retry button to the end
+        // Update retry button to use an icon
         if (sender === 'assistant') {
             const retryButton = document.createElement('button');
-            retryButton.textContent = 'Retry';
             retryButton.className = 'retry-button';
-            retryButton.style.alignSelf = 'flex-end';
-            retryButton.style.marginTop = '10px';
+            retryButton.setAttribute('title', 'Retry'); // Add tooltip
+            
+            // Create retry icon using SVG
+            retryButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                    <path d="M21 3v5h-5"/>
+                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+                    <path d="M8 16H3v5"/>
+                </svg>
+            `;
             
             retryButton.addEventListener('click', async function(e) {
                 console.log('Retry button clicked');
