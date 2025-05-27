@@ -30,12 +30,12 @@ body {
 
 .message {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    padding: 15px;
+    max-width: 90%;
+    width: 90%;
     margin-bottom: 15px;
-    padding: 10px 15px;
     border-radius: 18px;
-    max-width: 80%;
     line-height: 1.4;
     background-color: #e9e9eb;
     color: #333;
@@ -154,11 +154,13 @@ body {
 }
 
 .retry-button {
-    margin-left: 10px;
-    padding: 5px 10px;
+    align-self: flex-end;
+    margin-top: 10px;
+    margin-left: auto;
     background-color: #f0f0f0;
     border: 1px solid #ccc;
     border-radius: 4px;
+    padding: 5px 10px;
     cursor: pointer;
     font-size: 12px;
     transition: background-color 0.2s;
@@ -174,9 +176,9 @@ body {
 }
 
 .sql-results-table {
+    margin: 0;
     width: 100%;
     border-collapse: collapse;
-    margin: 10px 0;
     font-size: 14px;
     background-color: white;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -215,30 +217,47 @@ body {
     padding-right: 15px;
 }
 
-/* Make the table scrollable horizontally if it's too wide */
-.message {
-    overflow-x: auto;
+/* Message container adjustments */
+.message > div {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* Chart styles */
+.chart-container {
+    background-color: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin: 20px 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.download-button {
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+    margin-top: 15px;
+    align-self: flex-end;
+}
+
+.download-button:hover {
+    background-color: #218838;
+}
+
+/* Ensure charts are responsive */
+canvas {
     max-width: 100%;
-}
-
-/* Ensure the table doesn't overflow the message container */
-.message .sql-results-table {
-    min-width: 100%;
-    max-width: 100%;
-}
-
-/* Style for the message container */
-.message {
-    margin-bottom: 15px;
-    padding: 10px 15px;
-    border-radius: 18px;
-    max-width: 80%;
-    line-height: 1.4;
-    background-color: #e9e9eb;
-    color: #333;
-}
-
-.assistant-message {
-    align-self: flex-start;
-    margin-right: auto;
+    width: 100% !important;
+    height: auto !important;
 } 

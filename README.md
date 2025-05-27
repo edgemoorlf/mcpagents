@@ -12,6 +12,10 @@ Agent with MCP capabilities
 python app/process_and_aggregate.py
 ```
 
+```bash
+python scripts/populate_channel_model_data.py --db_name mysql_quota
+```
+
 This will create `model_stats.db` in the `data/` directory.
 
 ## Querying Statistics (MCP Methods)

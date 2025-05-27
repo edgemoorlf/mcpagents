@@ -1,5 +1,10 @@
 console.log('Script loaded');
 
+// Add Chart.js library
+const chartScript = document.createElement('script');
+chartScript.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+document.head.appendChild(chartScript);
+
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM Content Loaded');
     const chatLog = document.getElementById('chat-log');
@@ -10,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Store the last request for retry functionality
     let lastRequest = null;
+    let currentChart = null; // Keep track of current chart
 
     // Hotwords for post-processing (still used for text input)
     const hotwords = ['deepseek-r1', 'gpt-4o'];
@@ -29,28 +35,183 @@ document.addEventListener('DOMContentLoaded', () => {
         return corrected;
     }
 
+    // Function to determine if the data should be visualized
+    function shouldVisualize(question, data) {
+        const visualizationKeywords = ['trend', 'distribution', 'rpm', 'tpm', '分布', '趋势'];
+        return visualizationKeywords.some(keyword => question.toLowerCase().includes(keyword)) && 
+               data && data.includes('|');
+    }
+
+    // Function to create a chart from table data
+    function createChart(tableData, question) {
+        const lines = tableData.split('\n').filter(line => line.trim());
+        if (lines.length < 2) return null;
+
+        const headers = lines[0].split('|').map(h => h.trim());
+        const data = lines.slice(1).map(line => 
+            line.split('|').map(v => {
+                const num = Number(v.trim());
+                return isNaN(num) ? v.trim() : num;
+            })
+        );
+
+        // Determine chart type based on the question and data
+        let chartType = 'line';
+        if (question.toLowerCase().includes('distribution') || question.toLowerCase().includes('分布')) {
+            chartType = 'bar';
+        }
+
+        const chartData = {
+            labels: data.map(row => row[0]),
+            datasets: [{
+                label: headers[1],
+                data: data.map(row => row[1]),
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        };
+
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                title: {
+                    display: true,
+                    text: question
+                }
+            }
+        };
+
+        return { type: chartType, data: chartData, options: chartOptions };
+    }
+
+    // Function to download chart as SVG
+    function downloadChartAsSVG(chart, filename = 'chart.svg') {
+        const svgUrl = chart.toBase64Image('image/svg+xml');
+        const downloadLink = document.createElement('a');
+        downloadLink.href = svgUrl;
+        downloadLink.download = filename;
+        downloadLink.click();
+    }
+
     function addMessageToLog(message, sender, isHtml = false) {
         console.log('Adding message:', { message, sender, isHtml });
         
         const messageElement = document.createElement('div');
         messageElement.className = `message ${sender}-message`;
         
-        // Create a container for the message content and button
         const contentContainer = document.createElement('div');
         contentContainer.style.display = 'flex';
-        contentContainer.style.alignItems = 'center';
+        contentContainer.style.flexDirection = 'column';
         contentContainer.style.gap = '10px';
+        contentContainer.style.width = '100%';
         
-        // Create message content
         const messageContent = document.createElement('div');
+        messageContent.style.width = '100%';
         
-        // Check if the message contains SQL results (pipe-separated format)
-        if (message.includes('|')) {
-            // Split the message into lines
+        // Check if we should create a visualization
+        if (sender === 'assistant' && shouldVisualize(lastRequest?.question || '', message)) {
+            // First add the table
+            if (message.includes('|')) {
+                const tableDiv = document.createElement('div');
+                tableDiv.style.width = '100%';
+                tableDiv.style.marginBottom = '20px';
+                
+                // Create table for SQL results
+                const lines = message.split('\n').filter(line => line.trim());
+                
+                if (lines.length >= 2) {
+                    const table = document.createElement('table');
+                    table.className = 'sql-results-table';
+                    
+                    // Create table header from first line
+                    const thead = document.createElement('thead');
+                    const headerRow = document.createElement('tr');
+                    const headers = lines[0].split('|').map(h => h.trim());
+                    headers.forEach(header => {
+                        const th = document.createElement('th');
+                        th.textContent = header;
+                        headerRow.appendChild(th);
+                    });
+                    thead.appendChild(headerRow);
+                    table.appendChild(thead);
+                    
+                    // Identify columns for special formatting
+                    const usdColumns = headers.map(h => h.toLowerCase()).map((h, i) => (h.includes('usd') || h.includes('cost') || h.includes('quota')) ? i : -1).filter(i => i !== -1);
+                    const percentColumns = headers.map(h => h.toLowerCase()).map((h, i) => (h.includes('percent') || h.includes('percentage')) ? i : -1).filter(i => i !== -1);
+                    
+                    // Create table body from remaining lines
+                    const tbody = document.createElement('tbody');
+                    for (let i = 1; i < lines.length; i++) {
+                        const tr = document.createElement('tr');
+                        const values = lines[i].split('|').map(v => v.trim());
+                        values.forEach((value, colIdx) => {
+                            const td = document.createElement('td');
+                            // Format USD columns
+                            if (usdColumns.includes(colIdx) && !isNaN(value) && value.trim() !== '') {
+                                td.textContent = `$${Number(value).toFixed(2)}`;
+                            } else if (percentColumns.includes(colIdx) && !isNaN(value) && value.trim() !== '') {
+                                td.textContent = `${Number(value).toFixed(2)}%`;
+                            } else if (!isNaN(value) && value.trim() !== '') {
+                                if (value.includes('.')) {
+                                    td.textContent = Number(value).toFixed(4);
+                                } else {
+                                    td.textContent = Number(value).toLocaleString();
+                                }
+                            } else {
+                                td.textContent = value;
+                            }
+                            tr.appendChild(td);
+                        });
+                        tbody.appendChild(tr);
+                    }
+                    table.appendChild(tbody);
+                    
+                    tableDiv.appendChild(table);
+                }
+                messageContent.appendChild(tableDiv);
+            }
+
+            // Then add the chart
+            const chartContainer = document.createElement('div');
+            chartContainer.className = 'chart-container';
+            chartContainer.style.width = '100%';
+            chartContainer.style.height = '400px';
+            chartContainer.style.marginTop = '20px';
+            
+            const canvas = document.createElement('canvas');
+            chartContainer.appendChild(canvas);
+            
+            const chartConfig = createChart(message, lastRequest?.question || '');
+            if (chartConfig) {
+                // Create download button
+                const downloadButton = document.createElement('button');
+                downloadButton.textContent = 'Download as SVG';
+                downloadButton.className = 'download-button';
+                downloadButton.style.marginTop = '10px';
+                
+                // Create the chart
+                currentChart = new Chart(canvas, chartConfig);
+                
+                // Add download handler
+                downloadButton.addEventListener('click', () => {
+                    downloadChartAsSVG(currentChart);
+                });
+                
+                chartContainer.appendChild(downloadButton);
+                messageContent.appendChild(chartContainer);
+            }
+        } else if (message.includes('|')) {
+            // Regular table handling
             const lines = message.split('\n').filter(line => line.trim());
             
             if (lines.length >= 2) {
-                // Create table for SQL results
                 const table = document.createElement('table');
                 table.className = 'sql-results-table';
                 
@@ -98,12 +259,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 table.appendChild(tbody);
                 
                 messageContent.appendChild(table);
-            } else {
-                if (isHtml) {
-                    messageContent.innerHTML = message;
-                } else {
-                    messageContent.textContent = message;
-                }
             }
         } else {
             if (isHtml) {
@@ -136,20 +291,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 
         contentContainer.appendChild(messageContent);
         
-        // Add retry button for all assistant messages
+        // Move retry button to the end
         if (sender === 'assistant') {
             const retryButton = document.createElement('button');
             retryButton.textContent = 'Retry';
             retryButton.className = 'retry-button';
-            retryButton.style.cssText = `
-                margin-left: 10px;
-                padding: 5px 10px;
-                background-color: #f0f0f0;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 12px;
-            `;
+            retryButton.style.alignSelf = 'flex-end';
+            retryButton.style.marginTop = '10px';
+            
             retryButton.addEventListener('click', async function(e) {
                 console.log('Retry button clicked');
                 e.preventDefault();
@@ -186,6 +335,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.log('No lastRequest available');
                 }
             });
+            
             contentContainer.appendChild(retryButton);
         }
         
